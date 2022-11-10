@@ -7,7 +7,7 @@ terraform {
   }
   backend "s3" {
     bucket = "awslambdacontainerimageterraform"
-    key    = "aws/ec2-deploy/terraform.tfstate"
+    key    = "aws/ecr-deploy/terraform.tfstate"
     region = "us-east-1"
     # role_arn = "arn:aws:iam::219634475281:user/Terraform"
   }
