@@ -6,11 +6,16 @@ terraform {
     }
   }
   backend "s3" {
-    bucket = "awslambdacontainerimageterraform"
-    key    = "aws/ecr-deploy/terraform.tfstate"
-    region = "us-east-1"
+    bucket  = "terraformawslambda"
+    key     = "aws/ec2-deploy/terraform.tfstate"
+    region  = "us-east-1"
+    # profile = "value"
     # role_arn = "arn:aws:iam::219634475281:user/Terraform"
   }
+}
+provider "aws" {
+  # Configuration options
+  region = "us-east-1"
 }
 resource "aws_iam_role" "lambda" {
   name               = local.name
