@@ -28,7 +28,12 @@ locals {
 }
 
 resource "aws_ecr_repository" "repo" {
-  name = local.ecr_repository_name
+  name                 = local.ecr_repository_name
+  force_delete         = true
+  image_tag_mutability = "MUTABLE"
+  image_scanning_configuration {
+    scan_on_push = true
+  }
 }
 
 resource "null_resource" "ecr_image" {
@@ -120,7 +125,7 @@ resource "aws_lambda_function" "bogo-lambda-function" {
   image_uri     = "${aws_ecr_repository.repo.repository_url}@${data.aws_ecr_image.lambda_image.id}"
   package_type  = "Image"
 }
- 
+
 output "lambda_name" {
   value = aws_lambda_function.bogo-lambda-function.id
 }
