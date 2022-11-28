@@ -19,8 +19,8 @@ provider "aws" {
 
 data "aws_caller_identity" "current" {}
 locals {
-  prefix              = "awsecr-lambda"
-  name                = "awsecr-lambda"
+  prefix              = "awsecr2-lambda"
+  name                = "awsecr2-lambda"
   app_dir             = "apps"
   account_id          = data.aws_caller_identity.current.account_id
   ecr_repository_name = "${local.prefix}-demo-lambda-container"
