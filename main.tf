@@ -6,19 +6,56 @@ terraform {
     }
   }
   backend "s3" {
-    bucket  = "terraformawslambda"
-    key     = "aws/ec2-deploy/terraform.tfstate"
-    region  = "us-east-1"
-    # profile = "value"
-    # role_arn = "arn:aws:iam::219634475281:user/Terraform"
+    bucket = "terraformawslambda"
+    key    = "aws/ec2-deploy/terraform.tfstate"
+    region = "us-east-1"
   }
 }
+
 provider "aws" {
   # Configuration options
   region = "us-east-1"
 }
+
+data "aws_caller_identity" "current" {}
+locals {
+  prefix              = "awsecr-lambda"
+  name                = "awsecr-lambda"
+  app_dir             = "apps"
+  account_id          = data.aws_caller_identity.current.account_id
+  ecr_repository_name = "${local.prefix}-demo-lambda-container"
+  ecr_image_tag       = "latest"
+}
+
+resource "aws_ecr_repository" "repo" {
+  name = local.ecr_repository_name
+}
+
+resource "null_resource" "ecr_image" {
+  triggers = {
+    node_file   = md5(file("${path.module}/${local.app_dir}/index.js"))
+    docker_file = md5(file("${path.module}/${local.app_dir}/Dockerfile"))
+  }
+  provisioner "local-exec" {
+    command = <<EOF
+           aws ecr get-login-password --region ${var.region} | sudo docker login --username AWS --password-stdin ${local.account_id}.dkr.ecr.${var.region}.amazonaws.com
+           cd ${path.module}/${local.app_dir}
+           sudo docker build -t ${aws_ecr_repository.repo.repository_url}:${local.ecr_image_tag} .
+           sudo docker push ${aws_ecr_repository.repo.repository_url}:${local.ecr_image_tag}
+       EOF
+  }
+}
+
+data "aws_ecr_image" "lambda_image" {
+  depends_on = [
+    null_resource.ecr_image
+  ]
+  repository_name = local.ecr_repository_name
+  image_tag       = local.ecr_image_tag
+}
+
 resource "aws_iam_role" "lambda" {
-  name               = local.name
+  name               = "${local.prefix}-lambda-role"
   assume_role_policy = <<EOF
 {
   "Version": "2012-10-17",
@@ -34,41 +71,45 @@ resource "aws_iam_role" "lambda" {
 }
   EOF
 }
+data "aws_iam_policy_document" "lambda" {
+  statement {
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:PutLogEvents"
+    ]
+    effect    = "Allow"
+    resources = ["*"]
+    sid       = "CreateCloudWatchLogs"
+  }
 
-resource "aws_lambda_function" "default" {
-  function_name    = "GetPresignedLink"
-  description      = "Slack Dynamic Data Source"
-  role             = module.self_service_lambda_execution_role.arn
-  handler          = "build/microservice/golang/SlackDynamicDataSource/main"
-  runtime          = "go1.x"
-  s3_bucket        = "temenos-deployment-artifacts-${local.environment_lower}"
-  s3_key           = "microservice/golang/SlackDynamicDataSource/aws/main.zip"
-  memory_size      = 512
-  timeout          = 300
-  source_code_hash = base64encode(sha256("~/Development/ACS-GitLab/self-service/build/SlackDynamicDataSource/main.zip"))
-  environment {
-    variables = {
-      ShellySigningSecret = "SlackSigningSecret"
-    }
+  statement {
+    actions = [
+      "codecommit:GitPull",
+      "codecommit:GitPush",
+      "codecommit:GitBranch",
+      "codecommit:ListBranches",
+      "codecommit:CreateCommit",
+      "codecommit:GetCommit",
+      "codecommit:GetCommitHistory",
+      "codecommit:GetDifferences",
+      "codecommit:GetReferences",
+      "codecommit:BatchGetCommits",
+      "codecommit:GetTree",
+      "codecommit:GetObjectIdentifier",
+      "codecommit:GetMergeCommit"
+    ]
+    effect    = "Allow"
+    resources = ["*"]
+    sid       = "CodeCommit"
   }
 }
 
-resource "aws_ecr_repository" "image_storage" {
-  name                 = local.name
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
+resource "aws_iam_policy" "lambda" {
+  name   = "${local.prefix}-lambda-policy"
+  path   = "/"
+  policy = data.aws_iam_policy_document.lambda.json
 }
-
-resource "aws_lambda_function" "executable" {
-  function_name = var.function_name
-  image_uri     = "${aws_ecr_repository.image_storage.repository_url}:latest"
-  package_type  = "Image"
-  role          = aws_iam_role.lambda.arn
-}
-
 resource "aws_lambda_function" "bogo-lambda-function" {
   depends_on = [
     null_resource.ecr_image
@@ -78,4 +119,8 @@ resource "aws_lambda_function" "bogo-lambda-function" {
   timeout       = 300
   image_uri     = "${aws_ecr_repository.repo.repository_url}@${data.aws_ecr_image.lambda_image.id}"
   package_type  = "Image"
+}
+ 
+output "lambda_name" {
+  value = aws_lambda_function.bogo-lambda-function.id
 }
